@@ -1,0 +1,101 @@
+---
+title: Phenology masks with temporal buffer
+author: Guido Fioravanti
+date: "`r Sys.Date()`"
+---
+
+This document illustrates the 36 phenology masks for masking fAPAR when crop is out of the growing seasons.
+
+For each dekad (the number of each dekad in the title), two maps are shown:
+
+- the phenology mask 
+
+- the phenology mask with a temporal buffer of 1 dekad (as suggested by Willem): in this case, the beginning (the end) of the growing season is anticipated (psoticipated) of 1 daked
+
+In the following maps NA values correspond to cells with "no crop", e.g.: urban areas, forests and so on..
+
+A "difference map" highlights the effect of the application of a temporal buffer (in this case, the black dots correspond to crop cell where the crop is "active" in the map with the temporal buffer and "no active" in the map without the temporal buffer). As expected, the "buffered" maps exhibit a larger number of "active crop" cells.
+
+```{r intro,include=FALSE,warning=FALSE,message=FALSE,echo=FALSE,error=FALSE}
+rm(list=objects())
+library("terra")
+library("purrr")
+library("rworldmap")
+library("sf")
+library("dplyr")
+library("ggplot2")
+library("ggspatial")
+library("patchwork")
+library("tidyterra")
+library("scico")
+#library("furrr")
+
+#plan(strategy=multicore,workers=2)
+
+rworldmap::countriesCoarse->mondo
+cleangeo::clgeo_Clean(mondo)->mondo
+st_as_sf(mondo) %>%
+  filter(GEOUNIT=="Spain")->mondo
+
+vect(mondo)->vmondo
+
+list.files(pattern="^.+tif")->ffile
+
+
+numeroFile<-length(ffile)
+```
+
+
+```{r,include=TRUE,warning=FALSE,message=FALSE,echo=FALSE,error=FALSE,out.width="100%"}
+purrr::map(1:numeroFile,.f=function(.qualeFile){ #
+  
+  rast(ffile[.qualeFile])->grid_not_masked
+  crop(grid_not_masked,mondo)->grid_not_masked
+  
+  rast(glue::glue("./ris_right/buffered_{ffile[.qualeFile]}"))->grid_masked 
+  names(grid_masked)<-paste0("buffered_",names(grid_masked))
+  
+  grid_not_masked-grid_masked->differenza
+  names(differenza)<-"difference"
+  
+
+
+  #classify
+  classify(grid_masked,rcl=matrix(data=c(-1,0,0,0,1,1),nrow=2,byrow=TRUE))->grid_masked
+  levels(grid_masked)<-c("no active crop","active crop")
+
+  classify(grid_not_masked,rcl=matrix(data=c(-1,0,0,0,1,1),nrow=2,byrow=TRUE))->grid_not_masked
+  levels(grid_not_masked)<-c("no active crop","active crop")
+
+
+  
+  stringr::str_remove(ffile[.qualeFile],"01dd.tif")->titolo
+  ggplot()+
+    ggspatial::layer_spatial(grid_not_masked)+
+    ggspatial::layer_spatial(mondo,fill="transparent",color="black")+
+    ggtitle(paste0(titolo," (no buffer)"))+
+    scale_fill_scico_d(na.value="transparent",palette="bamako")+
+    theme_bw()+
+    theme(panel.grid=element_blank())->grafico1
+  
+  ggplot()+
+    ggspatial::layer_spatial(grid_masked)+
+    ggspatial::layer_spatial(mondo,fill="transparent",color="black")+
+    ggtitle(paste0(titolo," (with buffer)"))+    
+    scale_fill_scico_d(na.value="transparent",palette="bamako")+
+    theme_bw()+
+    theme(panel.grid=element_blank())->grafico2
+  
+  ggplot()+
+    ggspatial::layer_spatial(differenza)+
+    ggspatial::layer_spatial(mondo,fill="transparent",color="black")+
+    ggtitle(paste0("Difference between the two maps"))+
+    scale_fill_scico(na.value="transparent",palette="bamako",guide="none")+
+    theme_bw()+
+    theme(panel.grid=element_blank())->graficoDiff
+  
+    print((grafico1+grafico2+plot_layout(guides="collect",nrow=2,ncol = 2))/(graficoDiff+plot_layout(design="1#")))
+
+})->listaOut1
+```
+
